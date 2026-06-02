@@ -12,6 +12,8 @@ import aiRouter from './api/ai';
 import memoryRouter from './api/memory';
 import approvalsRouter from './api/approvals';
 import publishingRouter from './api/publishing';
+import onboardingRouter from './api/onboarding';
+import analyticsRouter from './api/analytics';
 
 dotenv.config();
 
@@ -139,6 +141,8 @@ app.use('/api/ai', aiRouter);
 app.use('/api/memory', memoryRouter);
 app.use('/api/approvals', approvalsRouter);
 app.use('/api/publishing', publishingRouter);
+app.use('/api/onboarding', onboardingRouter);
+app.use('/api/analytics', analyticsRouter);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

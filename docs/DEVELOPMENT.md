@@ -141,11 +141,15 @@ const personas = memory.personas;
 memory.metrics.reach += 1000;
 memory.metrics.engagement += 50;
 
-// Save back to database
+// Save back to database using ERIZON schema
 await supabase
-  .from('shared_memory')
-  .update({ metrics: memory.metrics })
-  .eq('company_id', companyId);
+  .from('metrics_daily')
+  .upsert({
+    company_id: companyId,
+    metric_date: new Date().toISOString().slice(0, 10),
+    source: 'manual_update',
+    metrics: memory.metrics
+  });
 ```
 
 ## 📊 API Endpoints

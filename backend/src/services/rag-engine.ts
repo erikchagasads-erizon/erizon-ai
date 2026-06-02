@@ -34,7 +34,8 @@ export class RAGEngine {
       logger.info(`🔍 RAG Query: ${question.substring(0, 100)}...`);
 
       // 1. Retrieve relevant documents
-      const documents = await this.vectorStore.searchByText(question, 5);
+      const companyId = companyContext.companyId || companyContext.company_id || companyContext.company?.id;
+      const documents = await this.vectorStore.searchByText(question, 5, companyId);
       logger.info(`📄 Retrieved ${documents.length} relevant documents`);
 
       // 2. Build context from retrieved documents
@@ -98,7 +99,7 @@ export class RAGEngine {
   private async generateAnswer(question: string, context: string): Promise<GroqResponse> {
     const systemPrompt = `You are ERIZON AI, a strategic business consultant and growth specialist.
 You have access to company data, market information, and historical decisions.
-Provide accurate, actionable recommendations based on the context provided.`;
+Provide accurate, actionable recommendations based on the context provided. Always respond in Portuguese when the user/company context is in Portuguese.`;
 
     const prompt = `
 Based on the following context, answer this question:
@@ -135,7 +136,8 @@ ANSWER:`;
       logger.info(`📝 Generating ${contentType} with RAG`);
 
       // Search for similar past content
-      const pastContent = await this.vectorStore.searchByText(brief, 3);
+      const companyId = memory.companyId || memory.company_id || memory.company?.id;
+      const pastContent = await this.vectorStore.searchByText(brief, 3, companyId);
 
       const context = this.buildContext(`Generate ${contentType}`, pastContent, memory);
 

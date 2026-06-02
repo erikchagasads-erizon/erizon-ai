@@ -57,6 +57,7 @@ export class AIService {
     }
 
     return this.rag.query(question, {
+      companyId,
       company: memory.company,
       market: memory.market,
       personas: memory.personas,
@@ -74,6 +75,7 @@ export class AIService {
     }
 
     const ragResponse = await this.rag.generateContent(contentType, brief, {
+      companyId,
       company: memory.company,
       brand: memory.brand,
       market: memory.market

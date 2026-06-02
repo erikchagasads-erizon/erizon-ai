@@ -1,9 +1,9 @@
-import { BaseAgent, Message } from './base-agent';
+import { BaseAgent, Message } from '../agents/base-agent';
 import { logger } from '../utils/logger';
-import { CEOAgent, CMOAgent, CROAgent, CFOAgent, COOAgent, HeadBrandingAgent, HeadGrowthAgent } from './executive-council';
-import { DesignerAgent, MotionDesignerAgent, VideomakerAgent, CopywriterAgent, ViralExpertAgent } from './marketing-department';
-import { MetaAdsSpecialistAgent, GoogleAdsSpecialistAgent, LinkedInAdsSpecialistAgent, TikTokAdsSpecialistAgent, BIAnalystAgent, MarketBenchmarkSpecialistAgent } from './traffic-department';
-import { CSMAgent, SupportAnalystAgent, DataAnalystAgent } from './support-department';
+import { CEOAgent, CMOAgent, CROAgent, CFOAgent, COOAgent, HeadBrandingAgent, HeadGrowthAgent } from '../agents/executive-council';
+import { DesignerAgent, MotionDesignerAgent, VideomakerAgent, CopywriterAgent, ViralExpertAgent } from '../agents/marketing-department';
+import { MetaAdsSpecialistAgent, GoogleAdsSpecialistAgent, LinkedInAdsSpecialistAgent, TikTokAdsSpecialistAgent, BIAnalystAgent, MarketBenchmarkSpecialistAgent } from '../agents/traffic-department';
+import { CSMAgent, SupportAnalystAgent, DataAnalystAgent } from '../agents/support-department';
 
 export class AgentOrchestrator {
   private agents: Map<string, BaseAgent> = new Map();

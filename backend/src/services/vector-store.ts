@@ -16,9 +16,13 @@ export interface SearchResult {
   metadata: Record<string, any>;
 }
 
+/**
+ * VectorStore aligned with Supabase schema.
+ * Stores content inside knowledge_documents + knowledge_chunks.embedding
+ * and searches through RPC match_knowledge_chunks.
+ */
 export class VectorStore {
   private supabase: ReturnType<typeof createClient>;
-  private tableName: string = 'file_uploads'; // or content_items
 
   constructor(supabaseUrl: string, supabaseKey: string) {
     if (!supabaseUrl || !supabaseKey) {
@@ -26,28 +30,47 @@ export class VectorStore {
     }
 
     this.supabase = createClient(supabaseUrl, supabaseKey);
-    logger.info('🗄️ Vector Store initialized with Supabase');
+    logger.info('🗄️ Vector Store initialized with knowledge_chunks');
   }
 
-  /**
-   * Store embedding
-   */
-  async storeEmbedding(id: string, text: string, embedding: number[], metadata?: Record<string, any>): Promise<boolean> {
+  async storeEmbedding(id: string, text: string, embedding: number[], metadata: Record<string, any> = {}): Promise<boolean> {
     try {
-      logger.info(`📦 Storing embedding for: ${id}`);
+      const companyId = metadata.company_id || metadata.companyId;
+      if (!companyId) throw new Error('metadata.company_id is required to store embeddings');
 
-      // For now, we'll store the text representation
-      // In production, use: INSERT INTO content_items SET embedding = '[...]'::vector
-      const { error } = await this.supabase
-        .from('content_items')
+      logger.info(`📦 Storing knowledge chunk embedding for: ${id}`);
+
+      const documentId = metadata.document_id || metadata.documentId || id;
+      const documentTitle = metadata.title || metadata.document_title || `Documento ${id}`;
+
+      const { error: docError } = await this.supabase
+        .from('knowledge_documents')
         .upsert({
-          id,
+          id: documentId,
+          company_id: companyId,
+          title: documentTitle,
+          source_type: metadata.source_type || 'manual',
           content: text,
-          embedding: embedding, // pgvector will handle this
-          ...metadata
+          summary: metadata.summary || null,
+          metadata
         });
 
-      if (error) throw error;
+      if (docError) throw docError;
+
+      const { error: chunkError } = await this.supabase
+        .from('knowledge_chunks')
+        .upsert({
+          id,
+          company_id: companyId,
+          document_id: documentId,
+          chunk_index: metadata.chunk_index ?? 0,
+          content: text,
+          token_count: metadata.token_count || null,
+          embedding,
+          metadata
+        });
+
+      if (chunkError) throw chunkError;
       return true;
     } catch (error) {
       logger.error('Error storing embedding:', error);
@@ -55,57 +78,67 @@ export class VectorStore {
     }
   }
 
-  /**
-   * Vector similarity search
-   */
-  async search(queryEmbedding: number[], limit: number = 5, threshold: number = 0.5): Promise<SearchResult[]> {
+  async search(
+    queryEmbedding: number[],
+    limit: number = 5,
+    threshold: number = 0.5,
+    companyId?: string
+  ): Promise<SearchResult[]> {
     try {
-      logger.info(`🔍 Searching with vector similarity (limit: ${limit})`);
-
-      // Query using pgvector similarity
-      // SELECT *, embedding <-> $1 as distance FROM content_items
-      // ORDER BY distance LIMIT $2
-      const { data, error } = await this.supabase.rpc('search_embeddings', {
-        query_embedding: queryEmbedding,
-        match_threshold: threshold,
-        match_count: limit
-      });
-
-      if (error) {
-        logger.warn('Vector search not yet available, returning mock results:', error);
-        // Return mock results for now
+      if (!companyId) {
+        logger.warn('Vector search requires companyId. Returning empty result.');
         return [];
       }
 
-      return data || [];
-    } catch (error) {
-      logger.error('Search error:', error);
-      return [];
-    }
-  }
+      logger.info(`🔍 Searching knowledge_chunks with vector similarity (limit: ${limit})`);
 
-  /**
-   * Search by text (semantic search after embedding)
-   */
-  async searchByText(query: string, limit: number = 5): Promise<SearchResult[]> {
-    try {
-      logger.info(`📝 Semantic search for: ${query}`);
-
-      // This would use an embedding service to convert query to vector
-      // For now, doing simple text search
-      const { data, error } = await this.supabase
-        .from('content_items')
-        .select('id, content, caption, metadata')
-        .textSearch('content', query)
-        .limit(limit);
+      const { data, error } = await this.supabase.rpc('match_knowledge_chunks', {
+        query_embedding: queryEmbedding,
+        target_company_id: companyId,
+        match_threshold: threshold,
+        match_count: limit
+      });
 
       if (error) throw error;
 
       return (data || []).map((item: any) => ({
         id: item.id,
-        text: item.content || item.caption,
-        similarity: 0.8, // Mock similarity
-        metadata: item.metadata || {}
+        text: item.content,
+        similarity: Number(item.similarity || 0),
+        metadata: {
+          ...(item.metadata || {}),
+          document_id: item.document_id
+        }
+      }));
+    } catch (error) {
+      logger.error('Vector search error:', error);
+      return [];
+    }
+  }
+
+  async searchByText(query: string, limit: number = 5, companyId?: string): Promise<SearchResult[]> {
+    try {
+      logger.info(`📝 Text memory search for: ${query}`);
+
+      let request = this.supabase
+        .from('knowledge_chunks')
+        .select('id, content, metadata, document_id')
+        .ilike('content', `%${query}%`)
+        .limit(limit);
+
+      if (companyId) request = request.eq('company_id', companyId);
+
+      const { data, error } = await request;
+      if (error) throw error;
+
+      return (data || []).map((item: any) => ({
+        id: item.id,
+        text: item.content,
+        similarity: 0.65,
+        metadata: {
+          ...(item.metadata || {}),
+          document_id: item.document_id
+        }
       }));
     } catch (error) {
       logger.error('Text search error:', error);
@@ -113,32 +146,34 @@ export class VectorStore {
     }
   }
 
-  /**
-   * Get embedding by ID
-   */
   async getEmbedding(id: string): Promise<EmbeddingData | null> {
     try {
       const { data, error } = await this.supabase
-        .from('content_items')
+        .from('knowledge_chunks')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
-      return data || null;
+      if (!data) return null;
+
+      return {
+        id: data.id,
+        text: data.content,
+        embedding: data.embedding || [],
+        metadata: data.metadata || {},
+        created_at: data.created_at
+      };
     } catch (error) {
       logger.error('Error fetching embedding:', error);
       return null;
     }
   }
 
-  /**
-   * Delete embedding
-   */
   async deleteEmbedding(id: string): Promise<boolean> {
     try {
       const { error } = await this.supabase
-        .from('content_items')
+        .from('knowledge_chunks')
         .delete()
         .eq('id', id);
 
@@ -150,17 +185,11 @@ export class VectorStore {
     }
   }
 
-  /**
-   * Update embedding
-   */
-  async updateEmbedding(id: string, embedding: number[], metadata?: Record<string, any>): Promise<boolean> {
+  async updateEmbedding(id: string, embedding: number[], metadata: Record<string, any> = {}): Promise<boolean> {
     try {
       const { error } = await this.supabase
-        .from('content_items')
-        .update({
-          embedding,
-          ...metadata
-        })
+        .from('knowledge_chunks')
+        .update({ embedding, metadata })
         .eq('id', id);
 
       if (error) throw error;
@@ -171,41 +200,30 @@ export class VectorStore {
     }
   }
 
-  /**
-   * Batch store embeddings
-   */
   async storeBatchEmbeddings(items: EmbeddingData[]): Promise<number> {
-    try {
-      logger.info(`📦 Batch storing ${items.length} embeddings`);
-
-      let successCount = 0;
-      for (const item of items) {
-        const success = await this.storeEmbedding(item.id, item.text, item.embedding, item.metadata);
-        if (success) successCount++;
-      }
-
-      logger.info(`✅ Batch store complete: ${successCount}/${items.length}`);
-      return successCount;
-    } catch (error) {
-      logger.error('Batch storage error:', error);
-      return 0;
+    let successCount = 0;
+    for (const item of items) {
+      const success = await this.storeEmbedding(item.id, item.text, item.embedding, item.metadata);
+      if (success) successCount++;
     }
+    logger.info(`✅ Batch store complete: ${successCount}/${items.length}`);
+    return successCount;
   }
 
-  /**
-   * Get vector statistics
-   */
-  async getStats(): Promise<any> {
+  async getStats(companyId?: string): Promise<any> {
     try {
-      const { data, error } = await this.supabase
-        .from('content_items')
+      let request = this.supabase
+        .from('knowledge_chunks')
         .select('id', { count: 'exact' })
         .not('embedding', 'is', null);
 
+      if (companyId) request = request.eq('company_id', companyId);
+
+      const { count, error } = await request;
       if (error) throw error;
 
       return {
-        total_embeddings: (data as any)?.length || 0,
+        total_embeddings: count || 0,
         timestamp: new Date().toISOString()
       };
     } catch (error) {

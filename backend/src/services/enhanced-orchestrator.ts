@@ -1,4 +1,4 @@
-import BaseAgent from './base-agent';
+import BaseAgent from '../agents/base-agent';
 import { logger } from '../utils/logger';
 import AIService from '../services/ai-service';
 import MemoryService from '../services/memory-service';
@@ -315,7 +315,7 @@ export class EnhancedAgentOrchestrator {
   ): Promise<AgentDecision> {
     try {
       // Use RAG to get context-aware answer
-      const ragResponse = await this.aiService.query(question, context);
+      const ragResponse: any = await this.aiService.query(question, context.companyId || context.company_id || context.company?.id || context);
 
       const decision: AgentDecision = {
         agent_id: agentName.toLowerCase().replace(/\s/g, '-'),

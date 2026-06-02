@@ -111,3 +111,5 @@ export abstract class BaseAgent {
     };
   }
 }
+
+export default BaseAgent;

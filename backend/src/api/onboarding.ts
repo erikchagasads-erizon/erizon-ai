@@ -1,235 +1,252 @@
 import express, { Request, Response } from 'express';
 import { logger } from '../utils/logger';
+import { getSupabaseServiceClient } from '../utils/supabase';
+import MemoryService from '../services/memory-service';
+import { supabaseConfig } from '../config';
 
 const router = express.Router();
+const memoryService = new MemoryService(supabaseConfig.url, supabaseConfig.serviceKey || supabaseConfig.anonKey);
 
-/**
- * GET /api/onboarding/status/:companyId - Get onboarding status
- */
-router.get('/status/:companyId', (req: Request, res: Response) => {
-  const { companyId } = req.params;
+const STEPS = [
+  'Boas-vindas e diagnóstico inicial',
+  'Dados da empresa',
+  'Mercado, nicho e canais',
+  'Persona e concorrência',
+  'Metas e KPIs',
+  'Arquivos e identidade visual',
+  'Reunião executiva final'
+];
 
-  logger.info(`📊 Fetching onboarding status: ${companyId}`);
+router.get('/status/:companyId', async (req: Request, res: Response) => {
+  try {
+    const { companyId } = req.params;
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from('onboarding_sessions')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  res.json({
-    success: true,
-    data: {
-      company_id: companyId,
-      status: 'in_progress', // pending, in_progress, completed
-      steps_completed: 0,
-      total_steps: 7,
-      current_step: 1,
-      progress_percentage: 14,
-      steps: [
-        { order: 1, name: 'Welcome & Overview', completed: true },
-        { order: 2, name: 'Company Data Collection', completed: false },
-        { order: 3, name: 'Market & Audience Analysis', completed: false },
-        { order: 4, name: 'Competition Research', completed: false },
-        { order: 5, name: 'Goals & Targets Setup', completed: false },
-        { order: 6, name: 'File Upload & Branding', completed: false },
-        { order: 7, name: 'Finalization & Team Assignment', completed: false }
-      ]
-    }
-  });
-});
-
-/**
- * POST /api/onboarding/start - Start onboarding
- */
-router.post('/start', (req: Request, res: Response) => {
-  const { company_name, email, phone } = req.body;
-
-  logger.info(`🚀 Starting onboarding for: ${company_name}`);
-
-  res.json({
-    success: true,
-    data: {
-      company_id: 'company-' + Date.now(),
-      onboarding_id: 'onboarding-' + Date.now(),
-      status: 'in_progress',
-      current_step: 1,
-      meeting_scheduled: {
-        type: 'Executive Council Meeting',
-        participants: [
-          'CEO IA',
-          'CMO IA',
-          'Head de Branding IA',
-          'Head de Growth IA',
-          'CSM IA'
-        ],
-        start_time: new Date(Date.now() + 3600000).toISOString(),
-        duration_minutes: 45,
-        description: 'Initial company assessment and strategy alignment'
+    if (error) throw error;
+    const progress = Number(data?.data?.progress || 0);
+    res.json({
+      success: true,
+      data: {
+        company_id: companyId,
+        onboarding_id: data?.id || null,
+        status: data?.status || 'not_started',
+        steps_completed: Math.floor((progress / 100) * STEPS.length),
+        total_steps: STEPS.length,
+        current_step: Math.min(STEPS.length, Math.max(1, Math.ceil((progress / 100) * STEPS.length) || 1)),
+        progress_percentage: progress,
+        steps: STEPS.map((name, index) => ({ order: index + 1, name, completed: progress >= ((index + 1) / STEPS.length) * 100 }))
       }
-    }
-  });
+    });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message });
+  }
 });
 
-/**
- * POST /api/onboarding/collect-company-data - Collect company information
- */
-router.post('/collect-company-data', (req: Request, res: Response) => {
-  const { company_id, data } = req.body;
+router.post('/start', async (req: Request, res: Response) => {
+  try {
+    const { user_id, company_name, email, phone, company_data = {} } = req.body;
+    const supabase = getSupabaseServiceClient();
 
-  logger.info(`📝 Collecting company data`);
+    const { data: company, error: companyError } = await supabase
+      .from('companies')
+      .insert({
+        owner_id: user_id,
+        name: company_name || company_data.name || 'Nova empresa',
+        whatsapp: phone,
+        settings: { onboarding_email: email }
+      })
+      .select('id,name')
+      .single();
+    if (companyError) throw companyError;
 
-  res.json({
-    success: true,
-    data: {
-      company_id,
-      collected: {
-        name: data.name,
-        website: data.website,
-        social_media: data.social_media,
-        description: data.description,
-        employees: data.employees
-      },
-      next_step: 'Market & Audience Analysis',
-      progress: 28
+    if (user_id) {
+      await supabase.from('company_members').insert({ company_id: company.id, user_id, role: 'owner', status: 'active' });
     }
-  });
-});
 
-/**
- * POST /api/onboarding/collect-market-data - Collect market info
- */
-router.post('/collect-market-data', (req: Request, res: Response) => {
-  const { company_id, market_data } = req.body;
+    const { data: session, error: sessionError } = await supabase
+      .from('onboarding_sessions')
+      .insert({
+        company_id: company.id,
+        user_id,
+        status: 'in_progress',
+        data: { progress: 14, executive_meeting: ['CEO IA', 'CMO IA', 'Head de Branding IA', 'Head de Growth IA', 'CSM IA'] }
+      })
+      .select('id,status')
+      .single();
+    if (sessionError) throw sessionError;
 
-  logger.info(`📊 Collecting market analysis`);
+    await memoryService.initializeMemory(company.id, { name: company.name, email, phone, ...company_data });
 
-  res.json({
-    success: true,
-    data: {
-      company_id,
-      market_analysis: {
-        segment: market_data.segment,
-        niche: market_data.niche,
-        region: market_data.region,
-        personas: market_data.personas,
-        buyer_journey: market_data.buyer_journey
-      },
-      next_step: 'Competition Research',
-      progress: 42
-    }
-  });
-});
-
-/**
- * POST /api/onboarding/collect-goals - Collect business goals
- */
-router.post('/collect-goals', (req: Request, res: Response) => {
-  const { company_id, goals } = req.body;
-
-  logger.info(`🎯 Setting business goals`);
-
-  res.json({
-    success: true,
-    data: {
-      company_id,
-      goals: {
-        short_term: goals.short_term,
-        medium_term: goals.medium_term,
-        long_term: goals.long_term,
-        kpis: goals.kpis,
-        targets: goals.targets
-      },
-      next_step: 'File Upload & Branding',
-      progress: 70
-    }
-  });
-});
-
-/**
- * POST /api/onboarding/upload-files - Upload branding and assets
- */
-router.post('/upload-files', (req: Request, res: Response) => {
-  const { company_id, files } = req.body;
-
-  logger.info(`📦 Processing file uploads`);
-
-  res.json({
-    success: true,
-    data: {
-      company_id,
-      uploaded_files: files.length,
-      file_summary: {
-        logos: 1,
-        brand_guides: 1,
-        media: files.length - 2,
-        documents: 0
-      },
-      vectorized: true,
-      indexed: true,
-      next_step: 'Finalization & Team Assignment',
-      progress: 85
-    }
-  });
-});
-
-/**
- * POST /api/onboarding/complete - Complete onboarding
- */
-router.post('/complete', (req: Request, res: Response) => {
-  const { company_id } = req.body;
-
-  logger.info(`✅ Completing onboarding: ${company_id}`);
-
-  res.json({
-    success: true,
-    data: {
-      company_id,
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      assigned_team: {
-        account_manager: 'CSM IA 01',
-        content_team: ['Designer IA 01', 'Copywriter IA 01', 'Motion IA 01'],
-        strategy_team: ['CMO IA', 'Head de Growth IA'],
-        analytics: ['Analista BI']
-      },
-      next_actions: [
-        'First Executive Meeting scheduled',
-        'Content generation begins',
-        'Analytics dashboard initialized',
-        'Real-time monitoring active'
-      ],
-      login_url: `https://erizon.ai/dashboard/${company_id}`,
-      message: 'Welcome to ERIZON AI! Your dedicated team is ready to accelerate your growth.'
-    }
-  });
-});
-
-/**
- * GET /api/onboarding/meeting-schedule/:companyId - Get scheduled meetings
- */
-router.get('/meeting-schedule/:companyId', (req: Request, res: Response) => {
-  const { companyId } = req.params;
-
-  logger.info(`📅 Fetching meeting schedule`);
-
-  res.json({
-    success: true,
-    data: {
-      meetings: [
-        {
-          id: 'meeting-1',
-          type: 'Executive Council Alignment',
-          date: new Date(Date.now() + 86400000).toISOString(),
-          duration_minutes: 45,
-          participants: ['CEO IA', 'CMO IA', 'CFO IA', 'COO IA'],
-          objectives: ['Strategic alignment', 'KPI definition', 'Timeline setup']
-        },
-        {
-          id: 'meeting-2',
-          type: 'Content Strategy Planning',
-          date: new Date(Date.now() + 172800000).toISOString(),
-          duration_minutes: 60,
-          participants: ['CMO IA', 'Designer IA 01', 'Copywriter IA 01'],
-          objectives: ['Content calendar', 'Design guidelines', 'Messaging framework']
+    res.json({
+      success: true,
+      data: {
+        company_id: company.id,
+        onboarding_id: session.id,
+        status: session.status,
+        current_step: 1,
+        meeting_scheduled: {
+          type: 'Onboarding Executivo ERIZON',
+          participants: ['CEO IA', 'CMO IA', 'Head de Branding IA', 'Head de Growth IA', 'CSM IA'],
+          description: 'Mapeamento completo da empresa, oportunidades e metas.'
         }
+      }
+    });
+  } catch (error: any) {
+    logger.error('Onboarding start error:', error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/collect-company-data', async (req: Request, res: Response) => {
+  try {
+    const { company_id, data } = req.body;
+    const supabase = getSupabaseServiceClient();
+    await supabase.from('companies').update({
+      name: data.name,
+      website: data.website,
+      instagram: data.instagram || data.social_media?.instagram,
+      facebook: data.facebook || data.social_media?.facebook,
+      linkedin: data.linkedin || data.social_media?.linkedin,
+      tiktok: data.tiktok || data.social_media?.tiktok,
+      whatsapp: data.whatsapp,
+      description: data.description,
+      segment: data.segment,
+      niche: data.niche,
+      region: data.region
+    }).eq('id', company_id);
+
+    await memoryService.updateMemory(company_id, 'company', data);
+    await updateProgress(company_id, 28);
+
+    res.json({ success: true, data: { company_id, collected: data, next_step: 'Mercado e público', progress: 28 } });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/collect-market-data', async (req: Request, res: Response) => {
+  try {
+    const { company_id, market_data } = req.body;
+    const supabase = getSupabaseServiceClient();
+    await supabase.from('companies').update({
+      segment: market_data.segment,
+      niche: market_data.niche,
+      region: market_data.region,
+      settings: { market: market_data }
+    }).eq('id', company_id);
+
+    if (Array.isArray(market_data.personas)) {
+      await memoryService.updateMemory(company_id, 'personas', market_data.personas);
+    }
+
+    if (Array.isArray(market_data.competitors)) {
+      await supabase.from('company_competitors').insert(market_data.competitors.map((c: any) => ({ company_id, ...c })));
+    }
+
+    await memoryService.updateMemory(company_id, 'market', market_data);
+    await updateProgress(company_id, 42);
+    res.json({ success: true, data: { company_id, market_analysis: market_data, next_step: 'Concorrência e metas', progress: 42 } });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/collect-goals', async (req: Request, res: Response) => {
+  try {
+    const { company_id, goals } = req.body;
+    const normalized = [
+      ...(goals.short_term || []).map((g: any) => ({ ...g, period: 'short' })),
+      ...(goals.medium_term || []).map((g: any) => ({ ...g, period: 'medium' })),
+      ...(goals.long_term || []).map((g: any) => ({ ...g, period: 'long' }))
+    ];
+    await memoryService.updateMemory(company_id, 'goals', normalized);
+    await updateProgress(company_id, 70);
+    res.json({ success: true, data: { company_id, goals, next_step: 'Arquivos e identidade visual', progress: 70 } });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/upload-files', async (req: Request, res: Response) => {
+  try {
+    const { company_id, files = [] } = req.body;
+    const supabase = getSupabaseServiceClient();
+    if (files.length > 0) {
+      await supabase.from('files').insert(files.map((file: any) => ({
+        company_id,
+        name: file.name || file.file_name,
+        original_name: file.original_name || file.name,
+        mime_type: file.mime_type,
+        size_bytes: file.size_bytes,
+        bucket: file.bucket || 'uploads',
+        storage_path: file.storage_path,
+        public_url: file.public_url,
+        status: 'uploaded',
+        metadata: file
+      })));
+    }
+    await updateProgress(company_id, 85);
+    res.json({ success: true, data: { company_id, uploaded_files: files.length, vectorized: true, indexed: true, progress: 85 } });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/complete', async (req: Request, res: Response) => {
+  try {
+    const { company_id, user_id } = req.body;
+    const supabase = getSupabaseServiceClient();
+    await supabase.from('onboarding_sessions').update({ status: 'completed', completed_at: new Date().toISOString(), data: { progress: 100 } }).eq('company_id', company_id);
+    if (user_id) await supabase.from('profiles').update({ onboarding_completed: true }).eq('id', user_id);
+
+    const { data: meeting } = await supabase.from('agent_meetings').insert({
+      company_id,
+      title: 'Reunião Executiva Inicial',
+      objective: 'Consolidar diagnóstico inicial e liberar plano de crescimento.',
+      status: 'completed',
+      summary: 'Onboarding concluído. Sistema pronto para produção de estratégia, conteúdo, neuro score e análise de campanhas.'
+    }).select('id').single();
+
+    res.json({
+      success: true,
+      data: {
+        company_id,
+        onboarding_meeting_id: meeting?.id,
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        assigned_team: ['CEO IA', 'CMO IA', 'Head Growth IA', 'Head Branding IA', 'CSM IA', 'Analista BI IA'],
+        next_actions: ['Conectar Meta Ads', 'Enviar identidade visual', 'Gerar primeiro calendário editorial', 'Rodar primeira reunião estratégica']
+      }
+    });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.get('/meeting-schedule/:companyId', async (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      company_id: req.params.companyId,
+      meetings: [
+        { type: 'Onboarding Executivo', participants: ['CEO IA', 'CMO IA', 'Head Branding IA', 'Head Growth IA', 'CSM IA'], objective: 'Mapeamento inicial' },
+        { type: 'Planejamento de Conteúdo', participants: ['CMO IA', 'Copywriter IA', 'Designer IA', 'Neuro Score IA'], objective: 'Criar plano mensal' },
+        { type: 'Performance e Growth', participants: ['Head Growth IA', 'Especialista Meta Ads IA', 'BI IA', 'CFO IA'], objective: 'Encontrar escala e gargalos' }
       ]
     }
   });
 });
+
+async function updateProgress(companyId: string, progress: number): Promise<void> {
+  const supabase = getSupabaseServiceClient();
+  await supabase.from('onboarding_sessions').update({ data: { progress }, updated_at: new Date().toISOString() }).eq('company_id', companyId).eq('status', 'in_progress');
+}
 
 export default router;

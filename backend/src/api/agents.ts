@@ -1,96 +1,83 @@
 import express, { Request, Response } from 'express';
 import { logger } from '../utils/logger';
+import { AGENT_SYSTEM_PROMPTS } from '../prompts/agents';
 
 const router = express.Router();
 
-/**
- * GET /api/agents - Get all agents
- */
-router.get('/', (req: Request, res: Response) => {
-  // Mock response - will be connected to orchestrator
-  res.json({
-    success: true,
-    data: {
-      total_agents: 36,
-      departments: {
-        'Executive Council': 7,
-        'Marketing Department': 10,
-        'Traffic Department': 8,
-        'Customer Success': 4,
-        'Support': 2,
-        'Analytics': 5
-      },
-      agents: [
-        {
-          id: 'ceo-ia-01',
-          name: 'CEO IA',
-          role: 'Chief Executive Officer',
-          department: 'Executive Council',
-          status: 'active'
-        },
-        {
-          id: 'cmo-ia-01',
-          name: 'CMO IA',
-          role: 'Chief Marketing Officer',
-          department: 'Executive Council',
-          status: 'active'
-        }
-      ]
-    }
-  });
-});
+const agents = Object.values(AGENT_SYSTEM_PROMPTS).map((agent, index) => ({
+  id: agent.key.toLowerCase().replace(/_/g, '-'),
+  key: agent.key,
+  name: agent.name,
+  role: agent.name,
+  department: agent.department,
+  status: 'active',
+  order: index + 1,
+  output_schema: agent.outputSchema
+}));
 
-/**
- * GET /api/agents/:id - Get specific agent
- */
-router.get('/:id', (req: Request, res: Response) => {
-  const { id } = req.params;
-  logger.info(`Fetching agent: ${id}`);
+router.get('/', (_req: Request, res: Response) => {
+  const departments = agents.reduce((acc: Record<string, number>, agent) => {
+    acc[agent.department] = (acc[agent.department] || 0) + 1;
+    return acc;
+  }, {});
 
   res.json({
     success: true,
     data: {
-      id,
-      name: 'Agent Name',
-      role: 'Agent Role',
-      department: 'Department',
-      status: 'active',
-      expertise: []
+      total_agents: agents.length,
+      departments,
+      agents
     }
   });
 });
 
-/**
- * GET /api/agents/:id/status - Get agent status
- */
-router.get('/:id/status', (req: Request, res: Response) => {
-  const { id } = req.params;
-
-  res.json({
-    success: true,
-    data: {
-      id,
-      status: 'active',
-      last_activity: new Date().toISOString(),
-      tasks_completed: 42,
-      current_task: 'idle'
-    }
-  });
-});
-
-/**
- * GET /api/agents/department/:dept - Get agents by department
- */
 router.get('/department/:dept', (req: Request, res: Response) => {
   const { dept } = req.params;
   logger.info(`Fetching agents for department: ${dept}`);
+
+  const normalized = dept.toLowerCase();
+  const filtered = agents.filter(agent => agent.department.toLowerCase().includes(normalized));
 
   res.json({
     success: true,
     data: {
       department: dept,
-      agent_count: 5,
-      agents: []
+      agent_count: filtered.length,
+      agents: filtered
+    }
+  });
+});
+
+router.get('/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const agent = agents.find(item => item.id === id || item.key === id.toUpperCase());
+
+  if (!agent) return res.status(404).json({ success: false, error: 'Agente não encontrado' });
+
+  const prompt = AGENT_SYSTEM_PROMPTS[agent.key as keyof typeof AGENT_SYSTEM_PROMPTS];
+  res.json({
+    success: true,
+    data: {
+      ...agent,
+      system_prompt: prompt.systemPrompt
+    }
+  });
+});
+
+router.get('/:id/status', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const agent = agents.find(item => item.id === id || item.key === id.toUpperCase());
+
+  if (!agent) return res.status(404).json({ success: false, error: 'Agente não encontrado' });
+
+  res.json({
+    success: true,
+    data: {
+      id: agent.id,
+      status: 'active',
+      last_activity: new Date().toISOString(),
+      current_task: 'idle',
+      department: agent.department
     }
   });
 });

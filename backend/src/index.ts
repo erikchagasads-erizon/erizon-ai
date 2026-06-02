@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { logger } from './utils/logger';
 import AgentOrchestrator from './services/agent-orchestration';
+import { appConfig } from './config';
 
 // Import API routes
 import agentsRouter from './api/agents';
@@ -16,6 +17,7 @@ import onboardingRouter from './api/onboarding';
 import analyticsRouter from './api/analytics';
 import workflowsRouter from './api/workflows';
 import agentManagementRouter from './api/agent-management';
+import integrationsRouter from './api/integrations';
 
 dotenv.config();
 
@@ -26,9 +28,23 @@ const PORT = process.env.PORT || 3001;
 let orchestrator: AgentOrchestrator;
 
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowedOrigins = (process.env.ALLOWED_ORIGINS || appConfig.frontendUrl || '')
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean);
+
+    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('CORS origin not allowed'));
+  },
+  credentials: true
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -147,6 +163,7 @@ app.use('/api/onboarding', onboardingRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/workflows', workflowsRouter);
 app.use('/api/agent-management', agentManagementRouter);
+app.use('/api/integrations', integrationsRouter);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

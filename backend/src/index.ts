@@ -8,6 +8,10 @@ import AgentOrchestrator from './services/agent-orchestration';
 import agentsRouter from './api/agents';
 import contentRouter from './api/content';
 import metricsRouter from './api/metrics';
+import aiRouter from './api/ai';
+import memoryRouter from './api/memory';
+import approvalsRouter from './api/approvals';
+import publishingRouter from './api/publishing';
 
 dotenv.config();
 
@@ -131,6 +135,10 @@ app.post('/api/orchestrator/workflow/content-production', async (req, res) => {
 app.use('/api/agents', agentsRouter);
 app.use('/api/content', contentRouter);
 app.use('/api/metrics', metricsRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/memory', memoryRouter);
+app.use('/api/approvals', approvalsRouter);
+app.use('/api/publishing', publishingRouter);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

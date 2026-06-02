@@ -1,0 +1,34 @@
+{
+  "name": "erizon-ai-frontend",
+  "version": "1.0.0",
+  "description": "ERIZON AI Frontend - Next.js Application",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "15.0.0",
+    "react": "19.0.0-rc.1",
+    "react-dom": "19.0.0-rc.1",
+    "typescript": "^5.3.3",
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "tailwindcss": "^3.4.1",
+    "postcss": "^8.4.32",
+    "autoprefixer": "^10.4.16",
+    "@headlessui/react": "^1.7.17",
+    "shadcn-ui": "^0.8.0",
+    "zustand": "^4.4.7",
+    "@tanstack/react-query": "^5.28.0",
+    "axios": "^1.6.2",
+    "socket.io-client": "^4.7.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "eslint-config-next": "15.0.0"
+  }
+}

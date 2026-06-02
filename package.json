@@ -1,0 +1,31 @@
+{
+  "name": "erizon-ai",
+  "version": "1.0.0",
+  "description": "ERIZON AI 3.0 - A complete company operated by AI",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "install:all": "npm install && npm install --workspace=shared && npm install --workspace=backend && npm install --workspace=frontend",
+    "dev": "npm run dev --workspace=backend & npm run dev --workspace=frontend",
+    "build": "npm run build --workspace=shared && npm run build --workspace=backend && npm run build --workspace=frontend",
+    "build:backend": "npm run build --workspace=backend",
+    "build:frontend": "npm run build --workspace=frontend",
+    "db:migrate": "echo 'Run migrations in Supabase dashboard'",
+    "lint": "npm run lint --workspaces --if-present",
+    "type-check": "npm run type-check --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "keywords": [
+    "ai",
+    "multi-agent",
+    "growth",
+    "marketing",
+    "automation"
+  ],
+  "author": "ERIZON AI Team",
+  "license": "Proprietary"
+}

@@ -14,6 +14,8 @@ import approvalsRouter from './api/approvals';
 import publishingRouter from './api/publishing';
 import onboardingRouter from './api/onboarding';
 import analyticsRouter from './api/analytics';
+import workflowsRouter from './api/workflows';
+import agentManagementRouter from './api/agent-management';
 
 dotenv.config();
 
@@ -143,6 +145,8 @@ app.use('/api/approvals', approvalsRouter);
 app.use('/api/publishing', publishingRouter);
 app.use('/api/onboarding', onboardingRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/workflows', workflowsRouter);
+app.use('/api/agent-management', agentManagementRouter);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
